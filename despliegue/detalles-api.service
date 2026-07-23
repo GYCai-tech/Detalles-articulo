@@ -1,0 +1,36 @@
+[Unit]
+Description=API de detalles de articulos (GYC)
+Documentation=https://github.com/gyc/detalles-articulos
+After=network-online.target
+Wants=network-online.target
+# El montaje CIFS de las imagenes tiene que estar arriba antes que la API.
+# Ajusta el nombre si cambias el punto de montaje: systemd lo deriva de la
+# ruta (/mnt/goyco-imagenes -> mnt-goyco\x2dimagenes.mount).
+RequiresMountsFor=/mnt/goyco-imagenes
+
+[Service]
+Type=simple
+User=detalles
+Group=detalles
+WorkingDirectory=/opt/detalles-articulos
+EnvironmentFile=/opt/detalles-articulos/.env
+ExecStart=/opt/detalles-articulos/.venv/bin/uvicorn api.main:app \
+          --host 0.0.0.0 --port 8000 --workers 2
+
+Restart=on-failure
+RestartSec=5
+
+# La API solo necesita leer su codigo y escribir en el montaje de imagenes y
+# en su SQLite. Todo lo demas, de solo lectura.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/detalles-articulos/api /mnt/goyco-imagenes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=detalles-api
+
+[Install]
+WantedBy=multi-user.target

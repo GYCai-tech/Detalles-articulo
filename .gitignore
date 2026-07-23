@@ -1,0 +1,19 @@
+.env
+.venv/
+.idea/
+.claude/
+__pycache__/
+*.pyc
+# Anclado a la raiz: el paquete Kotlin android/.../datos/ NO se ignora
+/datos/
+/salidas/
+/fotos_pendientes/
+api/estado.sqlite
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
