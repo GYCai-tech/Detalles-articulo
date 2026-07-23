@@ -13,6 +13,34 @@ Sin el montaje, las medidas funcionarían y **las fotos fallarían una a una**.
 Por eso `api/config.py` se niega a arrancar en Linux si `API_MONTAJE_IMAGENES`
 no está puesta: mejor no levantar que levantar a medias.
 
+## Camino recomendado: Docker
+
+Con Docker sobran los pasos 1, 2, 4 y 6 (usuario, driver ODBC, venv y
+systemd): la imagen ya lleva el driver y el compose hace de supervisor. Lo que
+**sigue siendo del host** es el montaje CIFS (paso 3) y el cortafuegos (7).
+
+```bash
+git clone https://github.com/GYCai-tech/Detalles-articulo.git
+cd Detalles-articulo
+cp .env.example .env && nano .env      # credenciales; host de SQL por IP
+# ... montar CIFS en /mnt/goyco-imagenes con uid=1000 (paso 3) ...
+docker compose up -d --build
+curl -s http://localhost:8000/salud    # "estado": "ok"
+```
+
+Dos detalles que no son opcionales:
+
+- **`SQLSERVER_HOST` por IP** (`10.0.0.6`). Dentro del contenedor el DNS
+  corporativo no resuelve `SRVAHORA`; verificado que con IP conecta.
+- **El montaje CIFS con `uid=1000`**, que es el usuario `detalles` dentro del
+  contenedor. Con otro uid las fotos fallarán con permiso denegado.
+
+El historial (SQLite) vive en el volumen `estado`; entra en el backup con
+`docker run --rm -v detalles-articulo_estado:/d alpine cat /d/estado.sqlite`.
+
+Los pasos siguientes documentan la instalación **sin** Docker, por si hiciera
+falta.
+
 ## 1. Usuario y código
 
 ```bash

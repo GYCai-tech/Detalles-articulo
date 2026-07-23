@@ -1,0 +1,16 @@
+# Que el contexto de build sea minimo y, sobre todo, que las credenciales
+# (.env) y el estado local no puedan acabar dentro de una imagen.
+.env
+.venv/
+.git/
+.idea/
+.claude/
+__pycache__/
+*.pyc
+android/
+datos/
+salidas/
+fotos_pendientes/
+api/estado.sqlite
+Dockerfile
+docker-compose.yml

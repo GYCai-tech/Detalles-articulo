@@ -1,0 +1,31 @@
+# Despliegue de la API en el servidor (Linux).
+#
+# Requisitos en el HOST antes de levantar esto:
+#   1. .env en esta carpeta (copiar .env.example y rellenar credenciales).
+#   2. El recurso de imagenes del ERP montado por CIFS en /mnt/goyco-imagenes
+#      con uid=1000 (ver despliegue/README.md, paso 3). El contenedor no monta
+#      CIFS por si mismo: recibe la carpeta ya montada.
+#
+# Arrancar:   docker compose up -d --build
+# Comprobar:  curl http://localhost:8000/salud
+services:
+  api:
+    build: .
+    container_name: detalles-api
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Rutas DENTRO del contenedor; no tocar sin cambiar los volumes.
+      API_BD_LOCAL: /datos/estado.sqlite
+      API_MONTAJE_IMAGENES: /imagenes
+    volumes:
+      # Historial de cambios y registro de fotos. Es lo que permite deshacer:
+      # merece estar en el backup del servidor.
+      - estado:/datos
+      # La carpeta de imagenes del ERP, ya montada por CIFS en el host.
+      - /mnt/goyco-imagenes:/imagenes
+    restart: unless-stopped
+
+volumes:
+  estado:
