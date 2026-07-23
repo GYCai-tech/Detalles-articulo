@@ -43,10 +43,12 @@ fun PantallaBuscar(
             )
         },
         floatingActionButton = {
+            // Respaldo para móviles sin escáner físico. En la PDA el gatillo
+            // funciona directamente, sin tocar la pantalla.
             ExtendedFloatingActionButton(
                 onClick = onEscanear,
                 icon = { Icon(Icons.Default.QrCodeScanner, null) },
-                text = { Text("Escanear") },
+                text = { Text("Cámara") },
             )
         },
     ) { relleno ->

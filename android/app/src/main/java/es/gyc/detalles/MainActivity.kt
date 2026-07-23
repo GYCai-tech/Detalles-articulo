@@ -1,7 +1,10 @@
 package es.gyc.detalles
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -10,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -26,6 +30,44 @@ class MainActivity : ComponentActivity() {
 
     private var ficheroFoto: File? = null
     private var alHacerFoto: ((File) -> Unit)? = null
+
+    // Escáner físico de la PDA (Honeywell). No usa SDK: el servicio de escaneo
+    // de la PDA emite un broadcast con el código leído si se configura así en
+    // Ajustes -> Honeywell Settings -> Scanning -> Internal Scanner ->
+    // Data Processing Settings:
+    //   Data Intent = activado,  Intent Action = es.gyc.detalles.SCAN
+    // (y desactivar el modo teclado/wedge para que no escriba el código en
+    // cualquier campo con foco). El código llega en el extra "data".
+    private var alEscanearHw: ((String) -> Unit)? = null
+
+    private val receptorEscanerHw = object : BroadcastReceiver() {
+        override fun onReceive(contexto: Context, intent: Intent) {
+            val codigo = intent.getStringExtra("data")?.trim()
+            if (!codigo.isNullOrBlank()) alEscanearHw?.invoke(codigo)
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // EXPORTED: el broadcast viene de la app de escaneo de Honeywell, no
+        // de esta app. Sin ese flag, en Android 13+ nunca llegaría.
+        ContextCompat.registerReceiver(
+            this,
+            receptorEscanerHw,
+            IntentFilter(ACCION_ESCANER).apply { addCategory(Intent.CATEGORY_DEFAULT) },
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+    }
+
+    override fun onStop() {
+        unregisterReceiver(receptorEscanerHw)
+        super.onStop()
+    }
+
+    companion object {
+        /** Acción que hay que escribir en el Data Intent de la PDA. */
+        const val ACCION_ESCANER = "es.gyc.detalles.SCAN"
+    }
 
     private val camara = registerForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -59,6 +101,10 @@ class MainActivity : ComponentActivity() {
     private fun Raiz(modelo: ModeloPrincipal = viewModel()) {
         val estado by modelo.estado.collectAsState()
         var enAjustes by remember { mutableStateOf(false) }
+
+        // El gatillo de la PDA busca desde cualquier pantalla: en el almacén
+        // se escanea el siguiente artículo sin volver atrás a mano.
+        SideEffect { alEscanearHw = modelo::buscarPorCodigo }
 
         // Sin servidor configurado no hay nada que hacer: se entra por ajustes.
         LaunchedEffect(estado.url) {

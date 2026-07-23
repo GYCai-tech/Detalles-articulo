@@ -248,10 +248,32 @@ gradlew.bat :app:assembleDebug          # -> app/build/outputs/apk/debug/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Kotlin + Compose, `minSdk 26`, sin dependencias de pago. El escáner usa el
-módulo de Google Play (`play-services-code-scanner`), así que no hace falta
-permiso de cámara propio ni montar CameraX. La foto la saca la cámara del
-sistema vía `FileProvider`.
+Kotlin + Compose, `minSdk 26`, sin dependencias de pago. La foto la saca la
+cámara del sistema vía `FileProvider`.
+
+### Escáner: el físico de la PDA primero, la cámara de respaldo
+
+El dispositivo del almacén es una **PDA Honeywell con escáner integrado**. La
+app lo usa **sin SDK**: escucha el broadcast que emite el servicio de escaneo
+de la PDA, y el gatillo funciona desde cualquier pantalla (escanear el
+siguiente artículo no obliga a volver atrás). Hay que configurarlo una vez en
+la PDA:
+
+> Ajustes → Honeywell Settings → Scanning → Internal Scanner → perfil Default
+> → **Data Processing Settings**:
+>
+> - **Data Intent**: activado
+> - **Intent Action**: `es.gyc.detalles.SCAN`
+> - **Keyboard wedge / Scan to intent por teclado**: desactivado (si no, el
+>   código se escribiría además como texto en cualquier campo con foco)
+
+El código llega en el extra `data` del intent. Si la acción no coincide
+letra a letra, el escaneo no llega a la app y no da ningún error: revisar ahí
+primero.
+
+El botón **Cámara** queda como respaldo para móviles normales: usa el módulo
+de Google Play (`play-services-code-scanner`), sin permiso de cámara propio ni
+CameraX.
 
 ### Ajustes
 
