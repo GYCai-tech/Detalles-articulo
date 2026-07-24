@@ -29,6 +29,18 @@ LEFT JOIN (SELECT DISTINCT idarticulo FROM dbo.persVFotoArticulo) f
        ON f.idarticulo = a.IdArticulo
 """
 
+# Un EAN de etiqueta puede vivir en tres sitios: ARTICULOS.CodBarras (22.141
+# de 25.232 son el codigo interno 111111...), Articulos_CodBarras (donde
+# vincula la app) y Prov_Articulos_CodBarras (codigos del proveedor). El EAN
+# del fabricante casi nunca esta en el primero, asi que hay que mirar los tres.
+_COINCIDE_CODBARRAS = """
+   LTRIM(RTRIM(a.CodBarras)) = :cb
+OR a.IdArticulo IN (SELECT cb1.IdArticulo FROM dbo.Articulos_CodBarras cb1
+                    WHERE LTRIM(RTRIM(cb1.CodBarras)) = :cb)
+OR a.IdArticulo IN (SELECT cb2.IdArticulo FROM dbo.Prov_Articulos_CodBarras cb2
+                    WHERE LTRIM(RTRIM(cb2.CBarras)) = :cb)
+"""
+
 
 def _a_dict(fila) -> dict:
     return {
@@ -64,28 +76,35 @@ def buscar_por_codbarras(codigo: str) -> list[dict]:
         return []
     with motor_lectura().connect() as con:
         filas = con.execute(
-            text(_SELECT_BASE + """
- WHERE LTRIM(RTRIM(a.CodBarras)) = :cb
-    OR a.IdArticulo IN (SELECT cb1.IdArticulo FROM dbo.Articulos_CodBarras cb1
-                        WHERE LTRIM(RTRIM(cb1.CodBarras)) = :cb)
-    OR a.IdArticulo IN (SELECT cb2.IdArticulo FROM dbo.Prov_Articulos_CodBarras cb2
-                        WHERE LTRIM(RTRIM(cb2.CBarras)) = :cb)
- ORDER BY a.IdArticulo"""),
+            text(_SELECT_BASE + f" WHERE {_COINCIDE_CODBARRAS}"
+                                " ORDER BY a.IdArticulo"),
             {"cb": codigo}).fetchall()
     return [_a_dict(f) for f in filas]
 
 
 def buscar_por_texto(termino: str, limite: int = 30) -> list[dict]:
-    """Respaldo para cuando el articulo no tiene etiqueta legible."""
+    """Busca por texto y tambien por EAN exacto.
+
+    El EAN exacto importa porque el escaner de la PDA, en modo teclado, escribe
+    el codigo en el mismo cuadro de busqueda en vez de emitir el broadcast: el
+    codigo llega por aqui y hay que resolverlo igual que buscar_por_codbarras,
+    o el escaneo "no encuentra nada". La busqueda LIKE por IdArticulo/Descrip
+    no vale, porque el EAN de fabricante no esta en ninguno de esos dos campos.
+    """
     termino = (termino or "").strip()
     if len(termino) < 2:
         return []
+    # El EAN solo se resuelve si no es un codigo basura (el '0' lo comparten 62
+    # articulos); el texto normal nunca entra por esa rama porque no coincide
+    # exactamente con ningun codigo.
+    cb = termino if termino not in CODBARRAS_INVALIDOS else "\0"
     with motor_lectura().connect() as con:
         filas = con.execute(
             text(_SELECT_BASE +
-                 " WHERE a.IdArticulo LIKE :t OR a.Descrip LIKE :t"
+                 f" WHERE a.IdArticulo LIKE :t OR a.Descrip LIKE :t"
+                 f"    OR ({_COINCIDE_CODBARRAS})"
                  " ORDER BY a.IdArticulo OFFSET 0 ROWS FETCH NEXT :n ROWS ONLY"),
-            {"t": f"%{termino}%", "n": limite}).fetchall()
+            {"t": f"%{termino}%", "cb": cb, "n": limite}).fetchall()
     return [_a_dict(f) for f in filas]
 
 
