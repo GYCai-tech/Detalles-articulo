@@ -10,7 +10,9 @@
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">10.0.0.0</domain>
+        <!-- Android no entiende subredes aqui: hay que listar cada host.
+             10.0.0.0 a secas NO cubria 10.0.0.12 y la app bloqueaba el HTTP. -->
+        <domain includeSubdomains="false">10.0.0.12</domain>
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">10.0.2.2</domain>
     </domain-config>

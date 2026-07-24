@@ -51,14 +51,26 @@ def obtener(id_articulo: str) -> dict | None:
 
 
 def buscar_por_codbarras(codigo: str) -> list[dict]:
-    """Devuelve lista: un mismo codigo puede apuntar a varios articulos."""
+    """Devuelve lista: un mismo codigo puede apuntar a varios articulos.
+
+    El codigo de una etiqueta puede vivir en tres sitios: ARTICULOS.CodBarras
+    (22.141 de 25.232 son codigos internos 111111...), Articulos_CodBarras
+    (codigos adicionales; es donde vincula la app) y Prov_Articulos_CodBarras
+    (codigos del proveedor). Se buscan los tres, porque el EAN del fabricante
+    casi nunca esta en el primero.
+    """
     codigo = (codigo or "").strip()
     if not codigo or codigo in CODBARRAS_INVALIDOS:
         return []
     with motor_lectura().connect() as con:
         filas = con.execute(
-            text(_SELECT_BASE + " WHERE LTRIM(RTRIM(a.CodBarras)) = :cb"
-                                " ORDER BY a.IdArticulo"),
+            text(_SELECT_BASE + """
+ WHERE LTRIM(RTRIM(a.CodBarras)) = :cb
+    OR a.IdArticulo IN (SELECT cb1.IdArticulo FROM dbo.Articulos_CodBarras cb1
+                        WHERE LTRIM(RTRIM(cb1.CodBarras)) = :cb)
+    OR a.IdArticulo IN (SELECT cb2.IdArticulo FROM dbo.Prov_Articulos_CodBarras cb2
+                        WHERE LTRIM(RTRIM(cb2.CBarras)) = :cb)
+ ORDER BY a.IdArticulo"""),
             {"cb": codigo}).fetchall()
     return [_a_dict(f) for f in filas]
 
@@ -224,15 +236,39 @@ def tiene_foto(id_articulo: str) -> bool:
     return bool(n)
 
 
+def foto_principal(id_articulo: str) -> str | None:
+    """Nombre de fichero de la foto que el ERP muestra para el articulo."""
+    with motor_lectura().connect() as con:
+        return con.execute(text(
+            "SELECT TOP 1 Archivo FROM dbo.persVFotoArticulo"
+            " WHERE idarticulo = :id ORDER BY Principal DESC, Archivo"),
+            {"id": id_articulo}).scalar()
+
+
 def publicar_foto(id_articulo: str, nombre_fichero: str, descripcion: str,
-                  usuario: str, principal: bool) -> None:
+                  usuario: str, principal: bool,
+                  reemplazar: bool = False) -> None:
     """Inserta la referencia de la foto. El fichero YA debe estar en disco.
 
     Objetos_Imagenes no tiene trigger de INSERT ni de UPDATE (el unico es
     Objetos_Imagenes_DTrig, FOR DELETE), asi que esto no dispara nada.
     IdDoc es identity y no se envia.
+
+    Con reemplazar=True se desmarca la principal anterior EN LA MISMA
+    transaccion que el INSERT: o pasan las dos cosas o ninguna, para no dejar
+    jamas un articulo con dos principales o con ninguna. Nota: requiere que el
+    login de escritura tenga UPDATE sobre Objetos_Imagenes; si no lo tiene, la
+    transaccion entera se revierte y la foto no se publica.
     """
+    iddoc = _iddoc(id_articulo)
     with motor_escritura().begin() as con:
+        if reemplazar:
+            con.execute(text(
+                "UPDATE dbo.Objetos_Imagenes SET Principal = 0,"
+                " Usuario = :usuario, FechaInsertUpdate = GETDATE()"
+                " WHERE Objeto = 'Articulo' AND IdDocObjeto = :iddoc"
+                " AND Principal <> 0"),
+                {"usuario": usuario[:50], "iddoc": iddoc})
         con.execute(text("""
             INSERT INTO dbo.Objetos_Imagenes
                    (Objeto, NombreFichero, IdDocObjeto, Descrip,
@@ -242,9 +278,45 @@ def publicar_foto(id_articulo: str, nombre_fichero: str, descripcion: str,
                     :principal, 0, 0, 0, :usuario, GETDATE())
         """), {
             "fichero": nombre_fichero,
-            "iddoc": _iddoc(id_articulo),
+            "iddoc": iddoc,
             "descrip": descripcion[:255],
             "principal": 1 if principal else 0,
+            "usuario": usuario[:50],
+        })
+
+
+def duenos_codbarras(codigo: str) -> list[str]:
+    """Articulos que ya tienen ese codigo, mirando en los tres sitios."""
+    with motor_lectura().connect() as con:
+        filas = con.execute(text("""
+            SELECT IdArticulo FROM dbo.ARTICULOS
+             WHERE LTRIM(RTRIM(CodBarras)) = :cb
+            UNION
+            SELECT IdArticulo FROM dbo.Articulos_CodBarras
+             WHERE LTRIM(RTRIM(CodBarras)) = :cb
+            UNION
+            SELECT IdArticulo FROM dbo.Prov_Articulos_CodBarras
+             WHERE LTRIM(RTRIM(CBarras)) = :cb
+        """), {"cb": codigo}).fetchall()
+    return [f[0] for f in filas]
+
+
+def vincular_codbarras(id_articulo: str, codigo: str, usuario: str) -> None:
+    """Da de alta el codigo en Articulos_CodBarras.
+
+    Es la tabla de codigos adicionales del ERP: PK (IdArticulo, CodBarras),
+    IdDoc identity y sin triggers. NO se toca ARTICULOS.CodBarras: ahi vive el
+    codigo interno 111111... que usan las etiquetas propias de la empresa.
+    """
+    with motor_escritura().begin() as con:
+        con.execute(text(
+            "INSERT INTO dbo.Articulos_CodBarras"
+            " (IdArticulo, CodBarras, Descrip, Cantidad, InsertUpdate,"
+            "  Usuario, FechaInsertUpdate)"
+            " VALUES (:id, :cb, :descrip, 1, 0, :usuario, GETDATE())"), {
+            "id": id_articulo,
+            "cb": codigo,
+            "descrip": "Vinculado desde la app de detalles",
             "usuario": usuario[:50],
         })
 

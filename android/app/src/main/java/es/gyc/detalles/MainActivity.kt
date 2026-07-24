@@ -21,7 +21,6 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import es.gyc.detalles.datos.Imagenes
-import es.gyc.detalles.ui.PantallaAjustes
 import es.gyc.detalles.ui.PantallaArticulo
 import es.gyc.detalles.ui.PantallaBuscar
 import java.io.File
@@ -100,35 +99,28 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Raiz(modelo: ModeloPrincipal = viewModel()) {
         val estado by modelo.estado.collectAsState()
-        var enAjustes by remember { mutableStateOf(false) }
 
         // El gatillo de la PDA busca desde cualquier pantalla: en el almacén
         // se escanea el siguiente artículo sin volver atrás a mano.
         SideEffect { alEscanearHw = modelo::buscarPorCodigo }
 
-        // Sin servidor configurado no hay nada que hacer: se entra por ajustes.
-        LaunchedEffect(estado.url) {
-            if (estado.url.isBlank()) enAjustes = true
-        }
-
         when {
-            enAjustes -> PantallaAjustes(
-                urlActual = estado.url,
-                onGuardar = { url ->
-                    modelo.guardarAjustes(url)
-                    enAjustes = false
-                },
-                onVolver = if (estado.url.isBlank()) null else ({ enAjustes = false }),
-            )
-
             estado.articulo != null -> PantallaArticulo(
                 articulo = estado.articulo!!,
                 guardando = estado.guardando,
                 error = estado.error,
                 exito = estado.exito,
+                versionFoto = estado.versionFoto,
+                fotoPendiente = estado.fotoPendiente,
+                codigoPendiente = estado.codigoPendiente,
+                cargarFoto = modelo::cargarFoto,
                 onGuardar = modelo::guardarMedidas,
                 onHacerFoto = { hacerFoto(modelo::subirFoto) },
                 onVolver = modelo::cerrarArticulo,
+                onFotoAnadir = { modelo.confirmarFoto(reemplazar = false) },
+                onFotoReemplazar = { modelo.confirmarFoto(reemplazar = true) },
+                onFotoCancelar = modelo::cancelarFoto,
+                onVincular = modelo::vincularCodigo,
             )
 
             else -> PantallaBuscar(
@@ -139,7 +131,6 @@ class MainActivity : ComponentActivity() {
                 onEscanear = { escanear(modelo::buscarPorCodigo) },
                 onBuscarTexto = modelo::buscarPorTexto,
                 onAbrir = modelo::abrir,
-                onAjustes = { enAjustes = true },
             )
         }
     }

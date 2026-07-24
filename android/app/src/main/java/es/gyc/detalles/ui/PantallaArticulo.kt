@@ -1,5 +1,7 @@
 package es.gyc.detalles.ui
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -11,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import es.gyc.detalles.datos.Articulo
@@ -18,6 +23,8 @@ import es.gyc.detalles.datos.CAMPOS_MEDIDA
 import es.gyc.detalles.datos.ayudaDe
 import es.gyc.detalles.datos.etiquetaDe
 import es.gyc.detalles.datos.unidadDe
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,9 +33,17 @@ fun PantallaArticulo(
     guardando: Boolean,
     error: String?,
     exito: String?,
+    versionFoto: Int,
+    fotoPendiente: java.io.File?,
+    codigoPendiente: String?,
+    cargarFoto: suspend () -> ByteArray?,
     onGuardar: (Map<String, Double>) -> Unit,
     onHacerFoto: () -> Unit,
     onVolver: () -> Unit,
+    onFotoAnadir: () -> Unit,
+    onFotoReemplazar: () -> Unit,
+    onFotoCancelar: () -> Unit,
+    onVincular: () -> Unit,
 ) {
     // Se parte de lo que ya hay en el ERP para que se vea qué se está pisando.
     val valores = remember(articulo.idArticulo) {
@@ -98,6 +113,66 @@ fun PantallaArticulo(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
+            if (articulo.tieneFoto) {
+                // versionFoto cambia al subir una foto: fuerza recargarla.
+                // El par distingue "cargando" de "no hay imagen": la base
+                // arrastra miles de referencias cuyo fichero ya no existe, y
+                // en ese caso no hay que dejar un spinner eterno.
+                val carga by produceState(
+                    false to null as ImageBitmap?,
+                    articulo.idArticulo, versionFoto,
+                ) {
+                    val bmp = withContext(Dispatchers.IO) {
+                        cargarFoto()?.let { bytes ->
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                ?.asImageBitmap()
+                        }
+                    }
+                    value = true to bmp
+                }
+                val (terminada, bmp) = carga
+                when {
+                    !terminada -> Box(
+                        Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+
+                    bmp != null -> Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 1.dp,
+                    ) {
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = "Foto del artículo",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+                        )
+                    }
+                    // terminada y sin imagen: referencia rota en el ERP, no
+                    // se enseña nada.
+                }
+            }
+
+            codigoPendiente?.let { codigo ->
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Text(
+                            "El código escaneado $codigo no está vinculado " +
+                                "a ningún artículo.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(
+                            onClick = onVincular,
+                            enabled = !guardando,
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) { Text("Vincular a este artículo") }
+                    }
+                }
+            }
+
             if (articulo.protegido) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -144,6 +219,54 @@ fun PantallaArticulo(
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    fotoPendiente?.let { fichero ->
+        // La foto ya viene reducida de Imagenes.reducir: decodificarla para
+        // la vista previa es barato.
+        val previa = remember(fichero) {
+            BitmapFactory.decodeFile(fichero.absolutePath)?.asImageBitmap()
+        }
+        AlertDialog(
+            onDismissRequest = onFotoCancelar,
+            title = {
+                Text(
+                    if (articulo.tieneFoto) "Este artículo ya tiene foto"
+                    else "¿Subir esta foto?"
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    previa?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = "Foto recién hecha",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp),
+                        )
+                    }
+                    if (articulo.tieneFoto) {
+                        Text(
+                            "¿Añadir esta foto junto a la actual, o " +
+                                "reemplazar la actual por esta?"
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (articulo.tieneFoto) {
+                    Row {
+                        TextButton(onClick = onFotoAnadir) { Text("Añadir") }
+                        TextButton(onClick = onFotoReemplazar) { Text("Reemplazar") }
+                    }
+                } else {
+                    TextButton(onClick = onFotoAnadir) { Text("Subir") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onFotoCancelar) { Text("Descartar") }
+            },
+        )
     }
 }
 

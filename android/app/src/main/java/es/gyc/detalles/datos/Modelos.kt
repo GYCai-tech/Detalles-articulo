@@ -32,8 +32,19 @@ data class RespuestaFoto(
     val id: Int,
     val fichero: String,
     val principal: Boolean = false,
+    val reemplazo: Boolean = false,
     val usuario: String? = null,
     val estado: String = "",
+)
+
+@Serializable
+data class Vinculo(val codigo: String)
+
+@Serializable
+data class RespuestaVinculo(
+    val idArticulo: String,
+    val codigo: String,
+    val sinCambios: Boolean = false,
 )
 
 /** Error del servidor con el detalle que devuelve FastAPI. */
@@ -53,28 +64,20 @@ class ErrorApi(
 }
 
 /**
- * Campos que se pueden medir, en el orden en que se presentan.
+ * Campos que pide la app: peso y las tres dimensiones. Decision del
+ * responsable (07/2026): no hace falta mas.
  *
- * 'Profundo' va antes que 'Largo' a proposito: para un producto de catalogo,
- * lo que se mide es Alto/Ancho/Profundo. 'Largo' es otra cosa (ver abajo) y se
- * deja el ultimo para que no se rellene por inercia.
+ * El "largo" de las fichas de catalogo es la columna Profundo del ERP
+ * (comprobado cruzando 370 articulos: 147 aciertos frente a 27 de Largo).
+ * La columna Largo del ERP (largo de barra o tubo, solo producto lineal) NO
+ * se pide desde la app; la API la sigue aceptando por si algun dia vuelve.
  */
-val CAMPOS_MEDIDA = listOf("Peso", "Alto", "Ancho", "Profundo", "Largo")
+val CAMPOS_MEDIDA = listOf("Peso", "Alto", "Ancho", "Profundo")
 
 fun unidadDe(campo: String): String = if (campo == "Peso") "kg" else "cm"
 
-/**
- * Etiqueta del campo. 'Largo' y 'Profundo' NO son intercambiables en este ERP,
- * y confundirlos es el error mas facil de cometer con el movil en la mano.
- *
- * Comprobado cruzando 370 articulos del catalogo con la tabla: el "largo" de
- * las fichas de catalogo se corresponde con la columna Profundo (147 aciertos
- * frente a 27 de Largo). Largo se usa para producto lineal: tubos, arcos,
- * perfiles, barras.
- */
 fun etiquetaDe(campo: String): String = when (campo) {
-    "Profundo" -> "Fondo / largo del producto"
-    "Largo" -> "Largo de barra o tubo"
+    "Profundo" -> "Largo / fondo"
     else -> campo
 }
 
@@ -83,8 +86,6 @@ fun ayudaDe(campo: String): String = when (campo) {
     "Peso" -> "En kilos."
     "Alto" -> "Altura del producto montado."
     "Ancho" -> "Anchura."
-    "Profundo" -> "El fondo. Es lo que las fichas de catálogo llaman «largo»."
-    "Largo" -> "Solo para tubos, perfiles, arcos y barras. " +
-        "Para una jaula o un gallinero, déjalo vacío."
+    "Profundo" -> "El largo del producto (las fichas de catálogo lo llaman «largo»)."
     else -> ""
 }

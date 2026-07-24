@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,7 +26,6 @@ fun PantallaBuscar(
     onEscanear: () -> Unit,
     onBuscarTexto: (String) -> Unit,
     onAbrir: (Articulo) -> Unit,
-    onAjustes: () -> Unit,
 ) {
     var termino by remember { mutableStateOf("") }
 
@@ -35,11 +33,6 @@ fun PantallaBuscar(
         topBar = {
             TopAppBar(
                 title = { Text("Buscar artículo") },
-                actions = {
-                    IconButton(onClick = onAjustes) {
-                        Icon(Icons.Default.Settings, "Ajustes")
-                    }
-                },
             )
         },
         floatingActionButton = {

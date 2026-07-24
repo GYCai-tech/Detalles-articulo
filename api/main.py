@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from fastapi import (FastAPI, File, HTTPException, Query,
                      Request, UploadFile, status)
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from medidas.db import SinCredenciales, motor_escritura, motor_lectura
@@ -53,6 +53,11 @@ class Medidas(BaseModel):
     Profundo: float | None = Field(None, gt=0)
 
 
+class Vinculo(BaseModel):
+    """EAN escaneado que se quiere asociar a un articulo."""
+    codigo: str = Field(min_length=4, max_length=30)
+
+
 # --- Consulta ---------------------------------------------------------------
 
 @app.get("/articulos/buscar")
@@ -86,6 +91,34 @@ def ficha(id_articulo: str):
     return art
 
 
+_TIPOS_IMAGEN = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".png": "image/png", ".webp": "image/webp",
+                 ".bmp": "image/bmp", ".gif": "image/gif"}
+
+
+@app.get("/articulos/{id_articulo}/imagen")
+def imagen(id_articulo: str):
+    """La foto que muestra el ERP, servida a la app.
+
+    El movil no puede abrir la carpeta de red del ERP; este endpoint hace de
+    puente. Devuelve la principal (o la unica que haya).
+    """
+    fichero = (erp.foto_principal(id_articulo) or "").strip()
+    if not fichero:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "el articulo no tiene foto")
+    # La base arrastra referencias antiguas con rutas dentro del nombre;
+    # servir solo nombres planos evita salirse de la carpeta de imagenes.
+    if "/" in fichero or "\\" in fichero or ".." in fichero:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            "la referencia de la foto no es un nombre de fichero")
+    ruta = Path(erp.ruta_imagenes()) / fichero
+    if not ruta.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            "la referencia existe pero el fichero no esta en la carpeta")
+    return FileResponse(ruta, media_type=_TIPOS_IMAGEN.get(
+        ruta.suffix.lower(), "application/octet-stream"))
+
+
 # --- Escritura --------------------------------------------------------------
 
 @app.put("/articulos/{id_articulo}/medidas")
@@ -114,7 +147,8 @@ def guardar_medidas(id_articulo: str, medidas: Medidas):
 # --- Fotos ------------------------------------------------------------------
 
 @app.post("/articulos/{id_articulo}/foto", status_code=status.HTTP_201_CREATED)
-async def subir_foto(id_articulo: str, fichero: UploadFile = File(...)):
+async def subir_foto(id_articulo: str, fichero: UploadFile = File(...),
+                     reemplazar: bool = False):
     """Publica la foto en el ERP: fichero en el recurso de red + fila.
 
     Ese orden importa. Si falla el INSERT queda un fichero suelto que nadie ve;
@@ -124,6 +158,9 @@ async def subir_foto(id_articulo: str, fichero: UploadFile = File(...)):
     El nombre es un UUID y no el codigo del articulo. Evita dos problemas
     reales: la clave primaria (Objeto, IdDocObjeto, NombreFichero) rechaza
     repetidos, y hay IdArticulo con espacios, comas y asteriscos.
+
+    Con reemplazar=true la nueva pasa a ser la principal y la anterior queda
+    como secundaria (no se borra nada del ERP: borrar es del AHORA).
     """
     art = erp.obtener(id_articulo)
     if not art:
@@ -142,10 +179,10 @@ async def subir_foto(id_articulo: str, fichero: UploadFile = File(...)):
                             "formato no admitido")
 
     nombre = f"{uuid4()}{sufijo}"
-    # Principal solo si el articulo no tiene ninguna. Asi una foto nueva nunca
-    # destrona a la que ya estaba, y ademas el trigger de borrado del ERP
-    # impide dejar un articulo sin principal.
-    principal = not erp.tiene_foto(id_articulo)
+    # Sin 'reemplazar', principal solo si el articulo no tiene ninguna: una
+    # foto nueva nunca destrona a la que ya estaba. Con 'reemplazar', la nueva
+    # pasa a principal y la anterior se desmarca en la misma transaccion.
+    principal = True if reemplazar else not erp.tiene_foto(id_articulo)
 
     with local.conexion() as con:
         cur = con.execute(
@@ -176,7 +213,7 @@ async def subir_foto(id_articulo: str, fichero: UploadFile = File(...)):
     try:
         erp.publicar_foto(id_articulo, nombre,
                           f"{art['descrip']} ({id_articulo})",
-                          USUARIO, principal)
+                          USUARIO, principal, reemplazar=reemplazar)
     except Exception as e:
         try:
             destino.unlink(missing_ok=True)
@@ -187,7 +224,42 @@ async def subir_foto(id_articulo: str, fichero: UploadFile = File(...)):
 
     marcar("publicada")
     return {"id": fila_id, "fichero": nombre, "principal": principal,
-            "usuario": USUARIO, "estado": "publicada"}
+            "reemplazo": reemplazar, "usuario": USUARIO, "estado": "publicada"}
+
+
+# --- Codigos de barras -------------------------------------------------------
+
+@app.put("/articulos/{id_articulo}/codbarras")
+def vincular_codbarras(id_articulo: str, vinculo: Vinculo):
+    """Vincula un EAN escaneado con el articulo (alta en Articulos_CodBarras).
+
+    Es lo que construye poco a poco la relacion etiqueta->articulo que al ERP
+    le falta: 22.141 articulos solo tienen el codigo interno 111111... y el
+    EAN del fabricante no esta en ningun sitio hasta que alguien lo vincula.
+    """
+    codigo = vinculo.codigo.strip()
+    if (" " in codigo or codigo in erp.CODBARRAS_INVALIDOS
+            or not codigo.replace("-", "").isalnum()):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "eso no parece un codigo de barras")
+
+    if not erp.obtener(id_articulo):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "articulo no encontrado")
+
+    duenos = erp.duenos_codbarras(codigo)
+    if id_articulo in duenos:
+        return {"idArticulo": id_articulo, "codigo": codigo, "sinCambios": True}
+    if duenos:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"ese codigo ya esta vinculado al articulo {duenos[0]}")
+
+    erp.vincular_codbarras(id_articulo, codigo, USUARIO)
+    with local.conexion() as con:
+        local.registrar_cambios(con, id_articulo,
+                                {"CodBarras": (None, codigo)}, USUARIO)
+    return {"idArticulo": id_articulo, "codigo": codigo,
+            "usuario": USUARIO, "sinCambios": False}
 
 
 @app.get("/articulos/{id_articulo}/fotos")

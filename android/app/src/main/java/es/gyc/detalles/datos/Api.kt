@@ -2,6 +2,7 @@ package es.gyc.detalles.datos
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -101,6 +102,7 @@ class Api(private val baseUrl: String) {
     suspend fun subirFoto(
         idArticulo: String,
         fichero: File,
+        reemplazar: Boolean = false,
     ): RespuestaFoto {
         val cuerpo = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -111,8 +113,30 @@ class Api(private val baseUrl: String) {
 
         val texto = ejecutar(
             Request.Builder()
-                .url("$baseUrl/articulos/${cod(idArticulo)}/foto")
+                .url("$baseUrl/articulos/${cod(idArticulo)}/foto?reemplazar=$reemplazar")
                 .post(cuerpo).build()
+        )
+        return json.decodeFromString(texto)
+    }
+
+    /** La foto que muestra el ERP, o null si el articulo no tiene. */
+    suspend fun imagen(idArticulo: String): ByteArray? = withContext(Dispatchers.IO) {
+        val peticion = Request.Builder()
+            .url("$baseUrl/articulos/${cod(idArticulo)}/imagen")
+            .build()
+        cliente.newCall(peticion).execute().use { respuesta ->
+            if (respuesta.isSuccessful) respuesta.body?.bytes() else null
+        }
+    }
+
+    /** Asocia el EAN escaneado al articulo (alta en Articulos_CodBarras). */
+    suspend fun vincularCodigo(idArticulo: String, codigo: String): RespuestaVinculo {
+        val cuerpo = json.encodeToString(Vinculo(codigo))
+            .toRequestBody("application/json".toMediaType())
+        val texto = ejecutar(
+            Request.Builder()
+                .url("$baseUrl/articulos/${cod(idArticulo)}/codbarras")
+                .put(cuerpo).build()
         )
         return json.decodeFromString(texto)
     }

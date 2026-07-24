@@ -10,12 +10,12 @@ Todo lo de aqui sale de auditar el esquema y el trigger dbo.Articulos_UTrig
 # no tiene ninguna guarda IF UPDATE() ni comparacion Inserted/Deleted sobre
 # ellas: un UPDATE que solo las toque no dispara ninguna escritura en cascada.
 #
-# OJO con Profundo: no esta en la vista VArticulos (el formulario estandar de
-# AHORA probablemente ni la ensena), pero si la leen las etiquetas de
-# fabricacion (persV_DatosEtiquetaFabricacion), el calculo de cajas
-# (persVCajasAlbaran) y los palets (PersVPedidosPaletsLineas). Rellenarla
-# cambia lo que se imprime en las etiquetas. Es el efecto que se busca, pero
-# conviene avisar a produccion antes de tocarla en masa.
+# Profundo: desde la migracion a AHORA V5 (20/07/2026) SI esta en VArticulos,
+# asi que el formulario estandar la enseña (antes no). La leen ademas las
+# etiquetas de fabricacion (persV_DatosEtiquetaFabricacion), el calculo de
+# cajas (persVCajasAlbaran) y los palets (PersVPedidosPaletsLineas):
+# rellenarla cambia lo que se imprime en las etiquetas. Es el efecto que se
+# busca, pero conviene avisar a produccion antes de tocarla en masa.
 COLUMNAS_MEDIDA = ("Peso", "Alto", "Ancho", "Largo", "Profundo")
 
 # Columnas de auditoria de AHORA. Son NOT NULL y las rellenamos siempre.
