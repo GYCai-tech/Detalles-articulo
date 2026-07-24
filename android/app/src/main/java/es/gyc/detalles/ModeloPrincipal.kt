@@ -148,29 +148,39 @@ class ModeloPrincipal(app: Application) : AndroidViewModel(app) {
         _estado.update { it.copy(articulo = null, error = null, exito = null) }
     }
 
-    fun guardarMedidas(medidas: Map<String, Double>) = viewModelScope.launch {
-        val articulo = _estado.value.articulo ?: return@launch
-        _estado.update { it.copy(guardando = true, error = null, exito = null) }
+    /**
+     * Guarda lo que haya cambiado en la ficha: medidas y/o el código de
+     * fabricante. codigoFabricante = null significa "no ha cambiado".
+     */
+    fun guardar(medidas: Map<String, Double>, codigoFabricante: String?) =
+        viewModelScope.launch {
+            val articulo = _estado.value.articulo ?: return@launch
+            _estado.update { it.copy(guardando = true, error = null, exito = null) }
 
-        runCatching {
-            api().guardarMedidas(articulo.idArticulo, medidas)
-            // Se relee del ERP en vez de asumir: si un trigger o una regla
-            // cambiara algo, la pantalla enseñaría lo que hay de verdad.
-            api().ficha(articulo.idArticulo)
-        }
-            .onSuccess { fresco ->
-                _estado.update {
-                    it.copy(
-                        articulo = fresco,
-                        guardando = false,
-                        exito = "Guardado.",
-                    )
+            runCatching {
+                if (medidas.isNotEmpty()) {
+                    api().guardarMedidas(articulo.idArticulo, medidas)
                 }
+                if (codigoFabricante != null) {
+                    api().guardarFabricante(articulo.idArticulo, codigoFabricante)
+                }
+                // Se relee del ERP en vez de asumir: si un trigger o una regla
+                // cambiara algo, la pantalla enseñaría lo que hay de verdad.
+                api().ficha(articulo.idArticulo)
             }
-            .onFailure { e ->
-                _estado.update { it.copy(guardando = false, error = describir(e)) }
-            }
-    }
+                .onSuccess { fresco ->
+                    _estado.update {
+                        it.copy(
+                            articulo = fresco,
+                            guardando = false,
+                            exito = "Guardado.",
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _estado.update { it.copy(guardando = false, error = describir(e)) }
+                }
+        }
 
     /**
      * Punto de entrada desde la camara. Nunca se sube directamente: la foto

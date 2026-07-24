@@ -141,6 +141,18 @@ class Api(private val baseUrl: String) {
         return json.decodeFromString(texto)
     }
 
+    /** Escribe el código del fabricante (ARTICULOS.CodigoFabricante). */
+    suspend fun guardarFabricante(idArticulo: String, codigo: String): RespuestaFabricante {
+        val cuerpo = json.encodeToString(Fabricante(codigo))
+            .toRequestBody("application/json".toMediaType())
+        val texto = ejecutar(
+            Request.Builder()
+                .url("$baseUrl/articulos/${cod(idArticulo)}/fabricante")
+                .put(cuerpo).build()
+        )
+        return json.decodeFromString(texto)
+    }
+
     companion object {
         /**
          * Imprescindible: existen articulos llamados `*`, `,,` y `GEN. PARTE`.

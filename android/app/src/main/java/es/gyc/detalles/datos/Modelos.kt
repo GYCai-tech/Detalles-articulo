@@ -8,6 +8,7 @@ data class Articulo(
     val descrip: String? = null,
     val idFamilia: String? = null,
     val codBarras: String? = null,
+    val codigoFabricante: String? = null,
     val tieneFoto: Boolean = false,
     val medidas: Map<String, Double?> = emptyMap(),
     val protegido: Boolean = false,
@@ -44,6 +45,16 @@ data class Vinculo(val codigo: String)
 data class RespuestaVinculo(
     val idArticulo: String,
     val codigo: String,
+    val sinCambios: Boolean = false,
+)
+
+@Serializable
+data class Fabricante(val codigo: String)
+
+@Serializable
+data class RespuestaFabricante(
+    val idArticulo: String,
+    val codigoFabricante: String? = null,
     val sinCambios: Boolean = false,
 )
 

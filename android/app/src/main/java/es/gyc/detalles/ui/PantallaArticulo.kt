@@ -37,7 +37,7 @@ fun PantallaArticulo(
     fotoPendiente: java.io.File?,
     codigoPendiente: String?,
     cargarFoto: suspend () -> ByteArray?,
-    onGuardar: (Map<String, Double>) -> Unit,
+    onGuardar: (Map<String, Double>, String?) -> Unit,
     onHacerFoto: () -> Unit,
     onVolver: () -> Unit,
     onFotoAnadir: () -> Unit,
@@ -60,6 +60,12 @@ fun PantallaArticulo(
         val original = articulo.medidas[campo]
         if (numero != null && numero > 0 && numero != original) campo to numero else null
     }.toMap()
+
+    var fabricante by remember(articulo.idArticulo) {
+        mutableStateOf(articulo.codigoFabricante.orEmpty())
+    }
+    val fabricanteCambiado = fabricante.trim() != articulo.codigoFabricante.orEmpty()
+    val totalCambios = editados.size + if (fabricanteCambiado) 1 else 0
 
     Scaffold(
         topBar = {
@@ -87,15 +93,20 @@ fun PantallaArticulo(
                         Text("Foto")
                     }
                     Button(
-                        onClick = { onGuardar(editados) },
-                        enabled = editados.isNotEmpty() && !guardando && !articulo.protegido,
+                        onClick = {
+                            onGuardar(
+                                editados,
+                                if (fabricanteCambiado) fabricante.trim() else null,
+                            )
+                        },
+                        enabled = totalCambios > 0 && !guardando && !articulo.protegido,
                         modifier = Modifier.weight(1f).height(52.dp),
                     ) {
                         if (guardando) CircularProgressIndicator(
                             Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Text(
-                            if (editados.isEmpty()) "Guardar"
-                            else "Guardar (${editados.size})"
+                            if (totalCambios == 0) "Guardar"
+                            else "Guardar ($totalCambios)"
                         )
                     }
                 }
@@ -213,6 +224,27 @@ fun PantallaArticulo(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+
+            OutlinedTextField(
+                value = fabricante,
+                onValueChange = { fabricante = it },
+                label = { Text("Código de fabricante") },
+                singleLine = true,
+                enabled = !articulo.protegido,
+                trailingIcon = {
+                    if (fabricanteCambiado) {
+                        Icon(Icons.Default.CheckCircle, "Modificado",
+                            tint = MaterialTheme.colorScheme.primary)
+                    }
+                },
+                supportingText = {
+                    val original = articulo.codigoFabricante
+                    val estado = if (original.isNullOrBlank()) "sin dato en el ERP"
+                                 else "actualmente $original"
+                    Text("$estado · La referencia del fabricante para este artículo.")
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             exito?.let { Aviso(it, MaterialTheme.colorScheme.primaryContainer) }
             error?.let { Aviso(it, MaterialTheme.colorScheme.errorContainer) }

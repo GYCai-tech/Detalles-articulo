@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 fotoPendiente = estado.fotoPendiente,
                 codigoPendiente = estado.codigoPendiente,
                 cargarFoto = modelo::cargarFoto,
-                onGuardar = modelo::guardarMedidas,
+                onGuardar = modelo::guardar,
                 onHacerFoto = { hacerFoto(modelo::subirFoto) },
                 onVolver = modelo::cerrarArticulo,
                 onFotoAnadir = { modelo.confirmarFoto(reemplazar = false) },

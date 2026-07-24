@@ -58,6 +58,11 @@ class Vinculo(BaseModel):
     codigo: str = Field(min_length=4, max_length=30)
 
 
+class Fabricante(BaseModel):
+    """Codigo del fabricante del articulo (campo libre; vacio lo borra)."""
+    codigo: str = Field("", max_length=50)
+
+
 # --- Consulta ---------------------------------------------------------------
 
 @app.get("/articulos/buscar")
@@ -142,6 +147,25 @@ def guardar_medidas(id_articulo: str, medidas: Medidas):
         "cambios": {c: {"antes": a, "despues": d} for c, (a, d) in cambios.items()},
         "sinCambios": not cambios,
     }
+
+
+@app.put("/articulos/{id_articulo}/fabricante")
+def guardar_fabricante(id_articulo: str, datos: Fabricante):
+    """Escribe el codigo del fabricante (ARTICULOS.CodigoFabricante)."""
+    try:
+        cambio = erp.actualizar_fabricante(id_articulo, datos.codigo, USUARIO)
+    except erp.ErrorMedida as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+    if cambio:
+        antes, despues = cambio
+        with local.conexion() as con:
+            local.registrar_cambios(
+                con, id_articulo, {"CodigoFabricante": (antes, despues)}, USUARIO)
+
+    return {"idArticulo": id_articulo,
+            "codigoFabricante": datos.codigo.strip() or None,
+            "sinCambios": cambio is None}
 
 
 # --- Fotos ------------------------------------------------------------------

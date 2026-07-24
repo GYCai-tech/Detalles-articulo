@@ -22,7 +22,8 @@ CODBARRAS_INVALIDOS = {"0", "00", "000", "11111", "111111", "1111111111111111"}
 _COLS = ", ".join(f"a.{c}" for c in COLUMNAS_MEDIDA)
 
 _SELECT_BASE = f"""
-SELECT  a.IdArticulo, a.Descrip, a.IdFamilia, a.CodBarras, {_COLS},
+SELECT  a.IdArticulo, a.Descrip, a.IdFamilia, a.CodBarras, a.CodigoFabricante,
+        {_COLS},
         CASE WHEN f.idarticulo IS NULL THEN 0 ELSE 1 END AS TieneFoto
 FROM    dbo.ARTICULOS a
 LEFT JOIN (SELECT DISTINCT idarticulo FROM dbo.persVFotoArticulo) f
@@ -48,6 +49,7 @@ def _a_dict(fila) -> dict:
         "descrip": fila.Descrip,
         "idFamilia": fila.IdFamilia,
         "codBarras": (fila.CodBarras or "").strip() or None,
+        "codigoFabricante": (fila.CodigoFabricante or "").strip() or None,
         "tieneFoto": bool(fila.TieneFoto),
         "medidas": {c: (float(getattr(fila, c)) if getattr(fila, c) else None)
                     for c in COLUMNAS_MEDIDA},
@@ -193,6 +195,50 @@ def actualizar(id_articulo: str, valores: dict[str, float],
                 f"el UPDATE afecto a {n} filas, se esperaba 1")
 
     return cambios
+
+
+def actualizar_fabricante(id_articulo: str, codigo: str,
+                          usuario: str) -> tuple | None:
+    """Escribe ARTICULOS.CodigoFabricante. Devuelve (antes, despues) o None.
+
+    Es un campo de texto libre de la ficha (varchar 50); el trigger
+    Articulos_UTrig no lo vigila, asi que un UPDATE que solo lo toque no
+    dispara ninguna escritura en cascada. Se puede vaciar (cadena vacia).
+    """
+    if id_articulo in ARTICULOS_PROTEGIDOS:
+        raise ErrorMedida(
+            f"'{id_articulo}' es un articulo protegido del ERP: el trigger "
+            f"Articulos_UTrig revierte cualquier UPDATE que lo toque.")
+
+    codigo = (codigo or "").strip()[:50]
+    actual = obtener(id_articulo)
+    if actual is None:
+        raise ErrorMedida(f"el articulo '{id_articulo}' no existe")
+
+    antes = actual.get("codigoFabricante")
+    if (antes or "") == codigo:
+        return None
+
+    marcas = ", ".join(f":_p{i}" for i in range(len(ARTICULOS_PROTEGIDOS)))
+    # SET NOCOUNT ON + @@ROWCOUNT: mismo motivo que en actualizar(), los
+    # triggers de ARTICULOS emiten contadores propios.
+    sql = (f"SET NOCOUNT ON;"
+           f" UPDATE dbo.ARTICULOS SET CodigoFabricante = :cod,"
+           f" {COL_USUARIO} = :_usuario, {COL_FECHA} = GETDATE()"
+           f" WHERE IdArticulo = :_id AND IdArticulo NOT IN ({marcas});"
+           f" SELECT @@ROWCOUNT AS n")
+
+    with motor_escritura().begin() as con:
+        n = con.execute(text(sql), {
+            "cod": codigo,
+            "_usuario": usuario[:50],
+            "_id": id_articulo,
+            **{f"_p{i}": a for i, a in enumerate(ARTICULOS_PROTEGIDOS)},
+        }).scalar()
+        if n != 1:
+            raise ErrorMedida(f"el UPDATE afecto a {n} filas, se esperaba 1")
+
+    return (antes, codigo or None)
 
 
 def ruta_imagenes_erp() -> str:
