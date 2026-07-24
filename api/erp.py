@@ -34,13 +34,26 @@ LEFT JOIN (SELECT DISTINCT idarticulo FROM dbo.persVFotoArticulo) f
 # de 25.232 son el codigo interno 111111...), Articulos_CodBarras (donde
 # vincula la app) y Prov_Articulos_CodBarras (codigos del proveedor). El EAN
 # del fabricante casi nunca esta en el primero, asi que hay que mirar los tres.
+#
+# Se compara contra dos variantes (:cb y :cb13) porque el escaner fisico de la
+# PDA añade digitos al final: lee p.ej. "111111104153601916" cuando el codigo
+# guardado es "1111111041536" (13 digitos). 25.155 de 25.232 CodBarras tienen
+# exactamente 13, asi que los 13 primeros de un escaneo largo son el EAN real.
 _COINCIDE_CODBARRAS = """
-   LTRIM(RTRIM(a.CodBarras)) = :cb
+   LTRIM(RTRIM(a.CodBarras)) IN (:cb, :cb13)
 OR a.IdArticulo IN (SELECT cb1.IdArticulo FROM dbo.Articulos_CodBarras cb1
-                    WHERE LTRIM(RTRIM(cb1.CodBarras)) = :cb)
+                    WHERE LTRIM(RTRIM(cb1.CodBarras)) IN (:cb, :cb13))
 OR a.IdArticulo IN (SELECT cb2.IdArticulo FROM dbo.Prov_Articulos_CodBarras cb2
-                    WHERE LTRIM(RTRIM(cb2.CBarras)) = :cb)
+                    WHERE LTRIM(RTRIM(cb2.CBarras)) IN (:cb, :cb13))
 """
+
+
+def _variantes_codbarras(codigo: str) -> tuple[str, str]:
+    """(codigo, codigo_13). Si el escaneo trae mas de 13 digitos, los 13
+    primeros son el EAN real (el resto lo añade el escaner de la PDA)."""
+    codigo = (codigo or "").strip()
+    cb13 = codigo[:13] if len(codigo) > 13 and codigo.isdigit() else codigo
+    return codigo, cb13
 
 
 def _a_dict(fila) -> dict:
@@ -76,11 +89,12 @@ def buscar_por_codbarras(codigo: str) -> list[dict]:
     codigo = (codigo or "").strip()
     if not codigo or codigo in CODBARRAS_INVALIDOS:
         return []
+    cb, cb13 = _variantes_codbarras(codigo)
     with motor_lectura().connect() as con:
         filas = con.execute(
             text(_SELECT_BASE + f" WHERE {_COINCIDE_CODBARRAS}"
                                 " ORDER BY a.IdArticulo"),
-            {"cb": codigo}).fetchall()
+            {"cb": cb, "cb13": cb13}).fetchall()
     return [_a_dict(f) for f in filas]
 
 
@@ -98,15 +112,18 @@ def buscar_por_texto(termino: str, limite: int = 30) -> list[dict]:
         return []
     # El EAN solo se resuelve si no es un codigo basura (el '0' lo comparten 62
     # articulos); el texto normal nunca entra por esa rama porque no coincide
-    # exactamente con ningun codigo.
-    cb = termino if termino not in CODBARRAS_INVALIDOS else "\0"
+    # exactamente con ningun codigo. cb13 recorta el sufijo que añade el escaner.
+    if termino in CODBARRAS_INVALIDOS:
+        cb = cb13 = "\0"
+    else:
+        cb, cb13 = _variantes_codbarras(termino)
     with motor_lectura().connect() as con:
         filas = con.execute(
             text(_SELECT_BASE +
                  f" WHERE a.IdArticulo LIKE :t OR a.Descrip LIKE :t"
                  f"    OR ({_COINCIDE_CODBARRAS})"
                  " ORDER BY a.IdArticulo OFFSET 0 ROWS FETCH NEXT :n ROWS ONLY"),
-            {"t": f"%{termino}%", "cb": cb, "n": limite}).fetchall()
+            {"t": f"%{termino}%", "cb": cb, "cb13": cb13, "n": limite}).fetchall()
     return [_a_dict(f) for f in filas]
 
 
